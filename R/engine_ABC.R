@@ -14,7 +14,7 @@
 #'  Column names in the data frame,
 #'    see \link[multiRL]{colnames}
 #' @param behrule 
-#'  The agent’s implicitly formed internal rule,
+#'  The agent's implicitly formed internal rule,
 #'    see \link[multiRL]{behrule}
 #' @param model 
 #'  Reinforcement Learning Model
@@ -45,8 +45,8 @@ engine_ABC <- function(
     model,
     funcs = NULL,
     priors,
-    
     settings = NULL,
+    
     control = control,
     ...
 ){
@@ -60,17 +60,18 @@ engine_ABC <- function(
   
 ############################### [Simulate] #####################################
   
-  multiRL.env <- estimate_0_ENV(
+  env <- estimate_0_ENV(
     data = data,
-    behrule = behrule,
     colnames = colnames,
+    behrule = behrule,
     funcs = funcs,
+    priors = priors,
     settings = settings,
   )
   
   list_simulated <- estimate_2_SBI(
+    env = env,
     model = model,
-    env = multiRL.env,
     priors = priors,
     control = control
   )
@@ -83,11 +84,10 @@ engine_ABC <- function(
   
   #Step 2: Summary Statistics
   list_sumstats <- lapply(list_simulated, .extract_sumstats)
-  df_sumstats <- as.data.frame(do.call(rbind, list_sumstats))
   
   ABC <- list(
     df_params = df_params,
-    df_sumstats = df_sumstats
+    list_sumstats = list_sumstats
   )
     
   return(ABC)

@@ -13,7 +13,7 @@
 #'  Column names in the data frame,
 #'    see \link[multiRL]{colnames}
 #' @param behrule 
-#'  The agent’s implicitly formed internal rule,
+#'  The agent's implicitly formed internal rule,
 #'    see \link[multiRL]{behrule}
 #' @param ids 
 #'  The Subject ID of the participant whose data needs to be fitted.
@@ -28,6 +28,10 @@
 #' @param settings 
 #'  Other model settings, 
 #'    see \link[multiRL]{settings}
+#' @param lowers
+#'  Lower bound of free parameters in each model.
+#' @param uppers
+#'  Upper bound of free parameters in each model.
 #' @param control 
 #'  Settings manage various aspects of the iterative process,
 #'    see \link[multiRL]{control}
@@ -47,7 +51,9 @@ estimate_2_RNN <- function(
     funcs = NULL,
     priors,
     settings,
-
+    
+    lowers,
+    uppers,
     control,
     ...
 ){
@@ -69,7 +75,7 @@ estimate_2_RNN <- function(
   if (is.null(funcs)) {funcs <- rep(list(list()), length(models))}
   for (i in 1:length(funcs)) {
     default <- list(
-      rate_func = multiRL::func_alpha,
+      lrng_func = multiRL::func_alpha,
       prob_func = multiRL::func_beta,
       util_func = multiRL::func_gamma,
       bias_func = multiRL::func_delta,
@@ -93,6 +99,7 @@ estimate_2_RNN <- function(
   for (i in 1:length(settings)) {
     settings[[i]]$mode <- "fitting"
     settings[[i]]$estimate <- "RNN"
+    settings[[i]]$policy <- "on"
   }
   
   # 转换先验
@@ -100,23 +107,36 @@ estimate_2_RNN <- function(
   
   # 默认控制
   default = list(
-    # simulate
+    # General
     seed = 123,
     core = 1,
-    # tensorflow
     sample = 100,
+    dash = 1e-5,
+    # SBI
     train = 1000,
     scope = "individual",
+    # RNN
     layer = "GRU",
+    loss = "MSE",
     info = c(colnames$object, colnames$action),
     units = 128,
+    dropout = 0,
+    L = NA_character_,
+    penalty = 1e-5,
     batch_size = 10,
-    epochs = 100
+    epochs = 100,
+    keras3 = FALSE,
+    backend = "tensorflow",
+    check = TRUE
   )
-  control <- utils::modifyList(x = default, val = control)
+  control <- utils::modifyList(x = default, val = control, keep.null = TRUE)
   # 解放control中的设定, 变成全局变量
   list2env(control, envir = environment())
+
+################################# [check] ######################################
   
+  if (check == TRUE) {.check_tensorflow()}
+
 ############################ [aotu-detect data] ################################
   
   # 自动探测数据
@@ -156,30 +176,55 @@ estimate_2_RNN <- function(
         if ( scope == "shared" ) {
           
           # 只训练一个RNN
-          RNN <- engine_RNN(
-            data = data[data[, subid] == 1, ],
-            behrule = behrule,
-            colnames = colnames,
-            funcs = funcs[[i]],
-            settings = settings[[i]],
-            priors = priors[[i]],
-            model = models[[i]],
-            control = control
-          )
-          
+          if (keras3) {
+              RNN <- engine_RNN3(
+                data = data[data[, subid] == 1, ],
+                behrule = behrule,
+                colnames = colnames,
+                funcs = funcs[[i]],
+                settings = settings[[i]],
+                priors = priors[[i]],
+                model = models[[i]],
+                control = control
+              )
+          } else {
+              RNN <- engine_RNN(
+                data = data[data[, subid] == 1, ],
+                behrule = behrule,
+                colnames = colnames,
+                funcs = funcs[[i]],
+                settings = settings[[i]],
+                priors = priors[[i]],
+                model = models[[i]],
+                control = control
+              )
+          }
+
           for (j in ids) {
             
             sub_data <- data[data[, subid] == j, ]
             
-            n_info   <- length(info)
             n_params <- length(priors[[i]])
             n_trials <- nrow(sub_data)
             
             # 预测真实数据对应的参数
+            sub_matrix <- .df2matrix(df = sub_data)
+            mat_cols <- colnames(sub_matrix)
+            split_info <- unlist(lapply(info, function(col) {
+              grep(paste0("^", col, "(_[0-9]+)?$"), mat_cols, value = TRUE)
+            }))
+            n_info <- length(split_info)
+            
             X_sub <- array(NA, dim = c(1, n_trials, n_info))
-            X_sub[1, , ] <- .df2matrix(df = sub_data)[, info, drop = FALSE]
+            X_sub[1, , ] <- sub_matrix[, split_info, drop = FALSE]
             X_pred <- stats::predict(object = RNN, x = X_sub, verbose = 0)
-            names(X_pred) <- names(priors)
+            X_pred <- .name_rnnouts(
+              X_pred = X_pred, loss = loss, param_names = names(priors[[i]])
+            )
+            X_pred <- .fix_params(
+              params_df = X_pred, param_names = names(priors[[i]]),
+              lower = lowers[[i]], upper = uppers[[i]], dash = dash
+            )
             opt_params[[j]] <- X_pred
             p()
           }
@@ -190,26 +235,52 @@ estimate_2_RNN <- function(
             
             sub_data <- data[data[, subid] == j, ]
             
-            n_info   <- length(info)
             n_params <- length(priors[[i]])
             n_trials <- nrow(sub_data)
             
             # 为每个被试单独训练模型
-            RNN <- engine_RNN(
-              data = sub_data,
-              behrule = behrule,
-              colnames = colnames,
-              funcs = funcs[[i]],
-              settings = settings[[i]],
-              priors = priors[[i]],
-              model = models[[i]],
-              control = control
-            )
+            if (keras3) {
+              RNN <- engine_RNN3(
+                data = sub_data,
+                behrule = behrule,
+                colnames = colnames,
+                funcs = funcs[[i]],
+                settings = settings[[i]],
+                priors = priors[[i]],
+                model = models[[i]],
+                control = control
+              )
+            } else {
+              RNN <- engine_RNN(
+                data = sub_data,
+                behrule = behrule,
+                colnames = colnames,
+                funcs = funcs[[i]],
+                settings = settings[[i]],
+                priors = priors[[i]],
+                model = models[[i]],
+                control = control
+              )
+            }
+
             # 预测真实数据对应的参数
+            sub_matrix <- .df2matrix(df = sub_data)
+            mat_cols <- colnames(sub_matrix)
+            split_info <- unlist(lapply(info, function(col) {
+              grep(paste0("^", col, "(_[0-9]+)?$"), mat_cols, value = TRUE)
+            }))
+            n_info <- length(split_info)
+            
             X_sub <- array(NA, dim = c(1, n_trials, n_info))
-            X_sub[1, , ] <- .df2matrix(df = sub_data)[, info, drop = FALSE]
+            X_sub[1, , ] <- sub_matrix[, split_info, drop = FALSE]
             X_pred <- stats::predict(object = RNN, x = X_sub, verbose = 0)
-            names(X_pred) <- names(priors)
+            X_pred <- .name_rnnouts(
+              X_pred = X_pred, loss = loss, param_names = names(priors[[i]])
+            )
+            X_pred <- .fix_params(
+              params_df = X_pred, param_names = names(priors[[i]]),
+              lower = lowers[[i]], upper = uppers[[i]], dash = dash
+            )
             opt_params[[j]] <- X_pred
             p()
           }
@@ -224,7 +295,6 @@ estimate_2_RNN <- function(
   for (i in 1:length(models)) {
     
     result.RNN[[i]] <- as.data.frame(result.RNN[[i]]) 
-    colnames(result.RNN[[i]]) <- names(priors[[i]])
     # 新增两列作为序号
     result.RNN[[i]][["fit_model"]] <- settings[[i]]$name
     result.RNN[[i]][["Subject"]] <- ids

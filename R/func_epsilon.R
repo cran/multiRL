@@ -1,7 +1,7 @@
-#' @title Function: \eqn{\epsilon}–first, Greedy, Decreasing 
+#' @title Function: Exploration or Exploitation
 #' @description
 #' 
-#'  \eqn{\epsilon–first}: 
+#'  \eqn{\epsilon-first}: 
 #'  
 #'  \deqn{
 #'  P(x) = 
@@ -11,7 +11,7 @@
 #'  \end{cases}
 #'  }
 #'  
-#'  \eqn{\epsilon–greedy}: 
+#'  \eqn{\epsilon-greedy}: 
 #'  
 #'  \deqn{
 #'  P(x) = 
@@ -21,7 +21,7 @@
 #'  \end{cases}
 #'  }
 #'  
-#'  \eqn{\epsilon–decreasing}:
+#'  \eqn{\epsilon-decreasing}:
 #'  
 #'  \deqn{
 #'  P(x) = 
@@ -30,11 +30,13 @@
 #'    \frac{\epsilon \cdot i}{1+\epsilon \cdot i}, & x=0 
 #'  \end{cases}
 #'  }
-#' 
+#'
+#' @param shown
+#'  Which options shown in this trial.
 #' @param rownum 
 #'  The trial number
 #' @param params 
-#'  Parameters used by the model’s internal functions,
+#'  Parameters used by the model's internal functions,
 #'    see \link[multiRL]{params}
 #' @param ... 
 #'  It currently contains the following information; additional information 
@@ -63,7 +65,15 @@
 #'          the object updated by the agent in the given trial.
 #'        \item simulation: 
 #'          the actual behavior performed by the agent.
+#'        \item position:
+#'          the position of the stimulus on the screen.
 #'      }
+#'    \item cue and rsp:
+#'      Cues and responses within latent learning rules, 
+#'        see \link[multiRL]{behrule} 
+#'    \item state:
+#'      The state stores the stimuli shown in the current trial—split into 
+#'      components by underscores—and the rewards associated with them.
 #' }
 #'    
 #' @return An \code{int}, either 0 or 1, indicating exploration or 
@@ -71,6 +81,7 @@
 #'    
 #' @section Body: 
 #' \preformatted{func_epsilon <- function(
+#'     shown,
 #'     rownum,
 #'     params,
 #'     ...
@@ -107,21 +118,11 @@
 #'     try <- 0
 #'     # Epsilon-Greedy:
 #'   } else if (rownum > threshold && model == "greedy"){
-#'     try <- sample(
-#'       c(1, 0),
-#'       prob = c(epsilon, 1 - epsilon),
-#'       size = 1
-#'     )
+#'     try <- as.integer(stats::runif(1) < epsilon)
 #'     # Epsilon-Decreasing: 
 #'   } else if (rownum > threshold && model == "decreasing") {
-#'     try <- sample(
-#'       c(1, 0),
-#'       prob = c(
-#'         1 / (1 + epsilon * rownum),
-#'         epsilon * rownum / (1 + epsilon * rownum)
-#'       ),
-#'       size = 1
-#'     )
+#'     prob_explore <- 1 / (1 + epsilon * rownum)
+#'     try <- as.integer(stats::runif(1) < prob_explore)
 #'   }
 #'   
 #'   return(try)
@@ -129,6 +130,7 @@
 #' }
 #' 
 func_epsilon <- function(
+    shown,
     rownum,
     params,
     ...
@@ -165,21 +167,11 @@ func_epsilon <- function(
     try <- 0
   # Epsilon-Greedy:
   } else if (rownum > threshold && model == "greedy"){
-    try <- sample(
-      c(1, 0),
-      prob = c(epsilon, 1 - epsilon),
-      size = 1
-    )
+    try <- as.integer(stats::runif(1) < epsilon)
   # Epsilon-Decreasing: 
   } else if (rownum > threshold && model == "decreasing") {
-    try <- sample(
-      c(1, 0),
-      prob = c(
-        1 / (1 + epsilon * rownum),
-        epsilon * rownum / (1 + epsilon * rownum)
-      ),
-      size = 1
-    )
+    prob_explore <- 1 / (1 + epsilon * rownum)
+    try <- as.integer(stats::runif(1) < prob_explore)
   }
   
   return(try)

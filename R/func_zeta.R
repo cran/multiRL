@@ -3,6 +3,8 @@
 #' 
 #'  \deqn{W_{new} = W_{old} + \zeta \cdot (W_{0} - W_{old})}
 #'
+#' @param shown
+#'  Which options shown in this trial.
 #' @param value0 
 #'  The initial values for all actions.
 #' @param values 
@@ -10,8 +12,11 @@
 #' @param reward 
 #'  The feedback received by the agent from the environment at trial(t) 
 #'    following the execution of action(a)
+#' @param utility 
+#'  The subjective value (internal representation) assigned by 
+#'   the agent to the objective reward.
 #' @param params 
-#'  Parameters used by the model’s internal functions,
+#'  Parameters used by the model's internal functions,
 #'    see \link[multiRL]{params}
 #' @param system
 #'  When the agent makes a decision, is a single system at work, or are multiple 
@@ -44,7 +49,15 @@
 #'          the object updated by the agent in the given trial.
 #'        \item simulation: 
 #'          the actual behavior performed by the agent.
+#'        \item position:
+#'          the position of the stimulus on the screen.
 #'      }
+#'    \item cue and rsp:
+#'      Cues and responses within latent learning rules, 
+#'        see \link[multiRL]{behrule} 
+#'    \item state:
+#'      The state stores the stimuli shown in the current trial—split into 
+#'      components by underscores—and the rewards associated with them.
 #' }
 #'    
 #' @return A \code{NumericVector} representing the values of unchosen options 
@@ -52,10 +65,13 @@
 #'    
 #' @section Body: 
 #' \preformatted{func_zeta <- function(
+#'     shown,
 #'     value0, 
 #'     values,
 #'     reward,
+#'     utility,
 #'     params,
+#'     system,
 #'     ...
 #' ){
 #' 
@@ -84,9 +100,11 @@
 #' }
 #' 
 func_zeta <- function(
+    shown,
     value0, 
     values,
     reward,
+    utility,
     params,
     system,
     ...

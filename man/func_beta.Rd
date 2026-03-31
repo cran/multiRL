@@ -2,17 +2,19 @@
 % Please edit documentation in R/func_beta.R
 \name{func_beta}
 \alias{func_beta}
-\title{Function: Soft-Max}
+\title{Function: Probability}
 \usage{
-func_beta(qvalue, explor, params, system, ...)
+func_beta(shown, qvalue, explor, params, system, ...)
 }
 \arguments{
+\item{shown}{Which options shown in this trial.}
+
 \item{qvalue}{The expected Q values of different behaviors produced by different systems 
 when updated to this trial.}
 
 \item{explor}{Whether the agent made a random choice (exploration) in this trial.}
 
-\item{params}{Parameters used by the model’s internal functions,
+\item{params}{Parameters used by the model's internal functions,
 see \link[multiRL]{params}}
 
 \item{system}{When the agent makes a decision, is a single system at work, or are multiple 
@@ -45,7 +47,15 @@ systems involved?
          the object updated by the agent in the given trial.
        \item simulation: 
          the actual behavior performed by the agent.
+       \item position:
+         the position of the stimulus on the screen.
      }
+   \item cue and rsp:
+     Cues and responses within latent learning rules, 
+       see \link[multiRL]{behrule} 
+   \item state:
+     The state stores the stimuli shown in the current trial—split into 
+     components by underscores—and the rewards associated with them.
 }}
 }
 \value{
@@ -73,12 +83,14 @@ A \code{NumericVector} containing the probability of choosing each
 \section{Body}{
  
 \preformatted{func_beta <- function(
+    shown,
     qvalue, 
     explor,
     params,
+    system,
     ...
 ){
-
+  
   list2env(list(...), envir = environment())
   
   # If you need extra information(...)
@@ -92,7 +104,6 @@ A \code{NumericVector} containing the probability of choosing each
   lapse    <- params[["lapse"]]
   weight   <- params[["weight"]]
   capacity <- params[["capacity"]]
-  sticky   <- params[["sticky"]]
   
   index     <- which(!is.na(qvalue[[1]]))
   n_shown   <- length(index)
@@ -109,6 +120,7 @@ A \code{NumericVector} containing the probability of choosing each
   
   if (explor == 1) {
     prob_mat[index, ] <- 1 / n_shown
+    prob_mat[prob_mat == 0] <- NA
   } else {
     for (s in seq_len(n_system)) {
       sub_qvalue <- qvalue[[s]]
@@ -118,11 +130,11 @@ A \code{NumericVector} containing the probability of choosing each
   }
   
   # Weighted average
-  prob <- as.vector(prob_mat %*% weight)
+  prob <- as.vector(prob_mat \%*\% weight)
   
   # lapse
   prob <- (1 - lapse * n_shown) * prob + lapse
-  
+   
   return(prob)
 }
 }

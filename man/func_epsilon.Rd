@@ -2,14 +2,16 @@
 % Please edit documentation in R/func_epsilon.R
 \name{func_epsilon}
 \alias{func_epsilon}
-\title{Function: \eqn{\epsilon}–first, Greedy, Decreasing}
+\title{Function: Exploration or Exploitation}
 \usage{
-func_epsilon(rownum, params, ...)
+func_epsilon(shown, rownum, params, ...)
 }
 \arguments{
+\item{shown}{Which options shown in this trial.}
+
 \item{rownum}{The trial number}
 
-\item{params}{Parameters used by the model’s internal functions,
+\item{params}{Parameters used by the model's internal functions,
 see \link[multiRL]{params}}
 
 \item{...}{It currently contains the following information; additional information 
@@ -38,7 +40,15 @@ see \link[multiRL]{params}}
          the object updated by the agent in the given trial.
        \item simulation: 
          the actual behavior performed by the agent.
+       \item position:
+         the position of the stimulus on the screen.
      }
+   \item cue and rsp:
+     Cues and responses within latent learning rules, 
+       see \link[multiRL]{behrule} 
+   \item state:
+     The state stores the stimuli shown in the current trial—split into 
+     components by underscores—and the rewards associated with them.
 }}
 }
 \value{
@@ -46,7 +56,7 @@ An \code{int}, either 0 or 1, indicating exploration or
    exploitation on the current trial.
 }
 \description{
-\eqn{\epsilon–first}: 
+\eqn{\epsilon-first}: 
  
  \deqn{
  P(x) = 
@@ -56,7 +66,7 @@ An \code{int}, either 0 or 1, indicating exploration or
  \end{cases}
  }
  
- \eqn{\epsilon–greedy}: 
+ \eqn{\epsilon-greedy}: 
  
  \deqn{
  P(x) = 
@@ -66,7 +76,7 @@ An \code{int}, either 0 or 1, indicating exploration or
  \end{cases}
  }
  
- \eqn{\epsilon–decreasing}:
+ \eqn{\epsilon-decreasing}:
  
  \deqn{
  P(x) = 
@@ -79,6 +89,7 @@ An \code{int}, either 0 or 1, indicating exploration or
 \section{Body}{
  
 \preformatted{func_epsilon <- function(
+    shown,
     rownum,
     params,
     ...
@@ -115,21 +126,11 @@ An \code{int}, either 0 or 1, indicating exploration or
     try <- 0
     # Epsilon-Greedy:
   } else if (rownum > threshold && model == "greedy"){
-    try <- sample(
-      c(1, 0),
-      prob = c(epsilon, 1 - epsilon),
-      size = 1
-    )
+    try <- as.integer(stats::runif(1) < epsilon)
     # Epsilon-Decreasing: 
   } else if (rownum > threshold && model == "decreasing") {
-    try <- sample(
-      c(1, 0),
-      prob = c(
-        1 / (1 + epsilon * rownum),
-        epsilon * rownum / (1 + epsilon * rownum)
-      ),
-      size = 1
-    )
+    prob_explore <- 1 / (1 + epsilon * rownum)
+    try <- as.integer(stats::runif(1) < prob_explore)
   }
   
   return(try)

@@ -1,5 +1,5 @@
 Package: multiRL
-Version: 0.2.3
+Version: 0.3.7
 Title: Reinforcement Learning Tools for Multi-Armed Bandit
 Description: 
   A flexible general-purpose toolbox for implementing Rescorla-Wagner models 
@@ -45,11 +45,11 @@ Imports: methods, utils, Rcpp, compiler, future, doFuture, foreach,
         doRNG, progressr, ggplot2, scales, grDevices
 LinkingTo: Rcpp
 Suggests: stats, GenSA, GA, DEoptim, pso, mlrMBO, mlr, ParamHelpers,
-        smoof, lhs, DiceKriging, rgenoud, cmaes, nloptr, abc,
-        tensorflow, keras, reticulate
+        smoof, lhs, DiceKriging, rgenoud, cmaes, nloptr, abc, pls,
+        reticulate, keras, keras3
 NeedsCompilation: yes
-Packaged: 2026-01-21 08:36:40 UTC; hmz19
+Packaged: 2026-03-31 10:48:12 UTC; hmz19
 Author: YuKi [aut, cre] (ORCID: <https://orcid.org/0009-0000-1378-1318>),
   Xinyu [aut] (ORCID: <https://orcid.org/0009-0004-4974-9191>)
 Repository: CRAN
-Date/Publication: 2026-01-26 16:20:14 UTC
+Date/Publication: 2026-03-31 11:00:02 UTC

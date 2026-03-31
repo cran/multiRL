@@ -4,16 +4,21 @@
 \alias{func_alpha}
 \title{Function: Learning Rate}
 \usage{
-func_alpha(qvalue, reward, params, system, ...)
+func_alpha(shown, qvalue, reward, utility, params, system, ...)
 }
 \arguments{
+\item{shown}{Which options shown in this trial.}
+
 \item{qvalue}{The expected Q values of different behaviors produced by different systems 
 when updated to this trial.}
 
 \item{reward}{The feedback received by the agent from the environment at trial(t) 
 following the execution of action(a)}
 
-\item{params}{Parameters used by the model’s internal functions,
+\item{utility}{The subjective value (internal representation) assigned by 
+the agent to the objective reward.}
+
+\item{params}{Parameters used by the model's internal functions,
 see \link[multiRL]{params}}
 
 \item{system}{When the agent makes a decision, is a single system at work, or are multiple 
@@ -46,7 +51,15 @@ systems involved?
          the object updated by the agent in the given trial.
        \item simulation: 
          the actual behavior performed by the agent.
+       \item position:
+         the position of the stimulus on the screen.
      }
+   \item cue and rsp:
+     Cues and responses within latent learning rules, 
+       see \link[multiRL]{behrule} 
+   \item state:
+     The state stores the stimuli shown in the current trial—split into 
+     components by underscores—and the rewards associated with them.
 }}
 }
 \value{
@@ -59,9 +72,12 @@ A \code{NumericVector} containing the updated values computed based
 \section{Body}{
  
 \preformatted{func_alpha <- function(
+    shown,
     qvalue,
     reward,
+    utility,
     params,
+    system,
     ...
 ){
 

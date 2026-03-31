@@ -1,16 +1,16 @@
-.for_abc <- function(ratio) {
+.for_abc <- function(data, rsp, block, action) {
   
-  # 为ABC计算单行的摘要统计量
-  vector <- unlist(ratio)
-
-  colname <- chartr(".", "_", names(vector))
-
-  onerow <- matrix(
-    data = vector,
-    nrow = 1,
-    ncol = length(vector),
-    dimnames = list(NULL, colname)
-  )
-
-  return(onerow)
+  n_block <- length(unique(data[[block]]))
+  n_rsp <- length(rsp)
+  
+  # 计算每个block中simulation的选择比率
+  ratio <- lapply(X = split(data, data[, block]), FUN = function(x) {
+    action_prop  <- .block_ratio(data = x, colname = action, levels = rsp)
+  })
+  
+  ratio_mat <- do.call(what = rbind, args = ratio)
+  onerow <- matrix(data = t(ratio_mat), nrow = 1)
+  
+  return(list(ratio = ratio_mat, onerow = onerow))
 }
+

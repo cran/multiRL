@@ -23,13 +23,13 @@ see \link[multiRL]{data}}
 \item{colnames}{Column names in the data frame,
 see \link[multiRL]{colnames}}
 
-\item{behrule}{The agent’s implicitly formed internal rule,
+\item{behrule}{The agent's implicitly formed internal rule,
 see \link[multiRL]{behrule}}
 
 \item{funcs}{The functions forming the reinforcement learning model,
 see \link[multiRL]{funcs}}
 
-\item{params}{Parameters used by the model’s internal functions,
+\item{params}{Parameters used by the model's internal functions,
 see \link[multiRL]{params}}
 
 \item{priors}{Prior probability density function of the free parameters,
@@ -98,6 +98,8 @@ multiRL.model <- multiRL::run_m(
     ),
     constant = list(
       seed = 123,
+      L = 0,
+      penalty = 1,
       Q0 = NA_real_, 
       reset = NA_real_,
       lapse = 0.01,

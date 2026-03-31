@@ -89,7 +89,7 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
 
     // R: record@input@funcs
     const Rcpp::S4 funcs = input.slot("funcs");
-    const Rcpp::Function rate_func(funcs.slot("rate_func"));
+    const Rcpp::Function lrng_func(funcs.slot("lrng_func"));
     const Rcpp::Function prob_func(funcs.slot("prob_func"));
     const Rcpp::Function util_func(funcs.slot("util_func"));
     const Rcpp::Function bias_func(funcs.slot("bias_func"));
@@ -107,6 +107,12 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     const Rcpp::CharacterVector rsp = Rcpp::as<Rcpp::CharacterVector>(
         behrule.slot("rsp")
     );
+
+    // number of ...    
+    int n_rows = Rcpp::as<int>( input.slot("n_rows") );
+    int n_cues = cue.size(); 
+    int n_rsps = rsp.size();
+    int n_system = system.size();
 
 /******************************* [load record] ********************************/
   
@@ -147,23 +153,33 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     Rcpp::CharacterMatrix simulation = Rcpp::clone(Rcpp::as<Rcpp::CharacterMatrix>(
         result.slot("simulation")
     ));  
+    Rcpp::CharacterMatrix position = Rcpp::clone(Rcpp::as<Rcpp::CharacterMatrix>(
+        result.slot("position")
+    )); 
 
     // behave
-    Rcpp::CharacterMatrix behave = Rcpp::cbind(
+    Rcpp::CharacterMatrix behave_raw = Rcpp::cbind(
         Rcpp::as<Rcpp::CharacterMatrix>(features.slot("action")),
         Rcpp::as<Rcpp::CharacterMatrix>(result.slot("latent")),
-        Rcpp::as<Rcpp::CharacterMatrix>(result.slot("simulation"))
+        Rcpp::as<Rcpp::CharacterMatrix>(result.slot("simulation")),
+        Rcpp::as<Rcpp::CharacterMatrix>(result.slot("position"))
     );
+
+    // 给behave赋予第0行
+    Rcpp::CharacterMatrix behave(n_rows + 1, 4);
+    behave.row(0) = Rcpp::CharacterVector::create(
+        NA_STRING, NA_STRING, NA_STRING, NA_STRING
+    );
+    // 将原矩阵数据拷贝到新矩阵
+    for (int i = 0; i < n_rows; i++) {
+        behave.row(i + 1) = behave_raw.row(i);
+    }
+
     Rcpp::colnames(behave) = Rcpp::CharacterVector::create(
-        "action", "latent", "simulation"
+        "action", "latent", "simulation", "position"
     );
 
 /******************************* [load others] ********************************/
-
-    int n_rows = Rcpp::as<int>( input.slot("n_rows") );
-    int n_cues = cue.size(); 
-    int n_rsps = rsp.size();
-    int n_system = system.size();
 
     // cue建立哈希表
     std::unordered_map<std::string, int> cue_map;
@@ -218,21 +234,27 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         // bias function: 每个刺激上的偏见
         bias.row(i) = Rcpp::as<Rcpp::NumericVector>(
             bias_func(
+                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
                 Rcpp::_["count"]  = Rcpp::NumericVector(count.row(i)),
                 Rcpp::_["params"] = params,
                 Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
                 Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i))
+                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                Rcpp::_["state"] = state[i]
             )
         );
         // exploration function: 此次是否进行探索
         exploration.row(i) = Rcpp::as<Rcpp::NumericVector>(
             expl_func(
+                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
                 Rcpp::_["rownum"] = i + 1,
                 Rcpp::_["params"] = params,
                 Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
                 Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i))
+                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                Rcpp::_["state"] = state[i]
             )
         );   
         // probability function: 选择每个选项的概率 
@@ -242,21 +264,27 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
             Rcpp::NumericMatrix sub_value = value[s];
             Rcpp::NumericVector sub_qvalue(n_cues);
             for (int j = 0; j < n_cues; j++) {
-                sub_qvalue[j] =
-                    ( sub_value(i, j) + bias(i, j) ) * shown(i, j);
+                if (Rcpp::NumericVector::is_na(shown(i, j))) {
+                    sub_qvalue[j] = NA_REAL;
+                } else {
+                    sub_qvalue[j] = sub_value(i, j) + bias(i, j);
+                }
             }
             qvalue[s] = sub_qvalue;
         }
 
         prob.row(i) = Rcpp::as<Rcpp::NumericVector>(
             prob_func(
+                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
                 Rcpp::_["qvalue"] = qvalue,
                 Rcpp::_["explor"] = Rcpp::NumericVector(exploration.row(i)),
                 Rcpp::_["params"] = params,
                 Rcpp::_["system"] = system,
                 Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
                 Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i))
+                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                Rcpp::_["state"] = state[i]
             )
         );
 
@@ -318,8 +346,15 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
             }
         }
 
+        position(i, 0) = std::to_string(row_index + 1);
+        // 记录当前行为到当前试次, 会覆盖上一次的行为
         behave(i, 1) = latent(i, 0);
         behave(i, 2) = simulation(i, 0);
+        behave(i, 3) = position(i, 0);
+        // 记录当前行为到下一个试次, 用于action select三函数读取
+        behave(i + 1, 1) = latent(i, 0);
+        behave(i + 1, 2) = simulation(i, 0);
+        behave(i + 1, 3) = position(i, 0);
 
         // 最后一列是奖励数值
         int col_reward = state_i.ncol()-1;   
@@ -335,11 +370,14 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         // utility function: 奖励转换成主观价值
         utility.row(i) = Rcpp::as<Rcpp::NumericVector>(
             util_func(
+                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
                 Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
                 Rcpp::_["params"] = params,
                 Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
                 Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i))
+                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                Rcpp::_["state"] = state[i]
             )
         ); 
 
@@ -354,6 +392,9 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         } else {
             is_nb = false;  
         }
+
+        // 检查此时是否是第一次选(全局第一次 or 局部第一次, 都算)
+        bool is_fp = (count(i, col_index) == 0);
 
         for (int s = 0; s < n_system; s++) {
 
@@ -377,32 +418,40 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
             sub_value.row(i + 1) =
                 Rcpp::as<Rcpp::NumericVector>(
                     dcay_func(
+                        Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
                         Rcpp::_["value0"] = Rcpp::NumericVector(sub_value.row(0)),
                         Rcpp::_["values"] = cur_value,
                         Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
+                        Rcpp::_["utility"] = utility(i, 0),
                         Rcpp::_["params"] = params,
                         Rcpp::_["system"] = sub_system,
                         Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
                         Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                        Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i))
+                        Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                        Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                        Rcpp::_["state"] = state[i]
                     )
                 );
 
             // learning rate 更新
-            if (std::isnan(Q0) && Qi == 0) {
+            if (std::isnan(Q0) && is_fp) {
                 sub_value(i + 1, col_index) = utility(i, 0);
                 sub_value(0,     col_index) = utility(i, 0);
             } else {
                 sub_value(i + 1, col_index) =
                     Rcpp::as<double>(
-                        rate_func(
+                        lrng_func(
+                            Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
                             Rcpp::_["qvalue"] = Qi,
-                            Rcpp::_["reward"] = utility(i, 0),
+                            Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
+                            Rcpp::_["utility"] = utility(i, 0),
                             Rcpp::_["params"] = params,
                             Rcpp::_["system"] = sub_system,
                             Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
                             Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i))
+                            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                            Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                            Rcpp::_["state"] = state[i]
                         )
                     );
             }
@@ -410,8 +459,14 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
             // 写回 list
             value[sub_system] = sub_value;
         }
-
-        count.row(i+1) = count.row(i);
+        
+        //如果需要重置, 且进入了新block, 则计数器也要归零
+        if (is_nb) {
+            std::fill( count.row(i+1).begin(), count.row(i+1).end(), 0.0 );
+        } else {
+            count.row(i+1) = count.row(i);
+        }
+        
         count(i+1, col_index) = count(i+1, col_index)+1;
     }
 
@@ -442,6 +497,7 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     result.slot("reward")       = reward;
     result.slot("utility")      = utility;
     result.slot("simulation")   = simulation;
+    result.slot("position")     = position;
 
 /********************************* [save output] ******************************/
 

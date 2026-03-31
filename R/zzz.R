@@ -1,13 +1,20 @@
 utils::globalVariables(c(
   "multiRL.env",
+  # variables
+  "idinfo", "exinfo", "behave", "cue", "rsp", "state",
   # model
   "data", "behrule", "colnames", "funcs", "priors", "settings",
+  # LBI
+  "seed", "core", "algorithm",
   # MLE
-  "iter", "pars", "size", "seed", "core", "dash",
+  "iter", "pars", "size", "dash",
   # MAP
   "diff", "patience", 
+  # SBI
+  "sample", "train", "scope", 
   # ABC
-  "tol",
+  "tol", "reduction", "ncomp", "metric",
   # RNN,
-  "sample", "train", "scope", "info", "layer", "units", "batch_size", "epochs"
+  "layer", "loss", "info", "units", "dropout", "L", "penalty", 
+  "batch_size", "epochs", "keras3", "backend", "check"
 ))

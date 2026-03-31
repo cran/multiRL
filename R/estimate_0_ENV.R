@@ -17,7 +17,7 @@
 #'  Column names in the data frame,
 #'    see \link[multiRL]{colnames}
 #' @param behrule 
-#'  The agent’s implicitly formed internal rule,
+#'  The agent's implicitly formed internal rule,
 #'    see \link[multiRL]{behrule}
 #' @param funcs 
 #'  The functions forming the reinforcement learning model,
@@ -39,10 +39,8 @@ estimate_0_ENV <- function(
     data,
     colnames = list(),
     behrule,
-    
     funcs = list(),
     priors = list(),
-    
     settings = list(),
     ...
 ){
@@ -62,7 +60,7 @@ estimate_0_ENV <- function(
   
   # 默认函数
   default <- list(
-    rate_func = multiRL::func_alpha,
+    lrng_func = multiRL::func_alpha,
     prob_func = multiRL::func_beta,
     util_func = multiRL::func_gamma,
     bias_func = multiRL::func_delta,

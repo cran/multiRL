@@ -8,13 +8,13 @@
 #'  Column names in the data frame,
 #'    see \link[multiRL]{colnames}
 #' @param behrule 
-#'  The agent’s implicitly formed internal rule,
+#'  The agent's implicitly formed internal rule,
 #'    see \link[multiRL]{behrule}
 #' @param funcs 
 #'  The functions forming the reinforcement learning model,
 #'    see \link[multiRL]{funcs}
 #' @param params 
-#'  Parameters used by the model’s internal functions,
+#'  Parameters used by the model's internal functions,
 #'    see \link[multiRL]{params}
 #' @param priors 
 #'  Prior probability density function of the free parameters,
@@ -79,6 +79,8 @@
 #'     ),
 #'     constant = list(
 #'       seed = 123,
+#'       L = 0,
+#'       penalty = 1,
 #'       Q0 = NA_real_, 
 #'       reset = NA_real_,
 #'       lapse = 0.01,

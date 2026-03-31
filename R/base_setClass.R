@@ -25,7 +25,7 @@ methods::setClass(
 methods::setClass(
   Class = "multiRL.funcs",
   slots = list(
-    rate_func = "function", 
+    lrng_func = "function", 
     prob_func = "function",
     util_func = "function",
     bias_func = "function",
@@ -101,7 +101,8 @@ methods::setClass(
     latent = "matrix",
     reward = "matrix",
     utility = "matrix",
-    simulation = "matrix"
+    simulation = "matrix",
+    position = "matrix"
   )
 )
 

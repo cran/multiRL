@@ -49,6 +49,8 @@ process_5_metric <- function(
   LL          <- NA_real_
   AIC         <- NA_real_
   BIC         <- NA_real_
+  L           <- output@input@params@constant$L
+  penalty     <- output@input@params@constant$penalty
   
   # for MAP
   priors      <- output@input@priors
@@ -70,7 +72,15 @@ process_5_metric <- function(
     # 如果刺激和反应是一一对应, 才能计算LL
     P <- prob[cbind(seq_len(nrow(prob)), match(action, colnames(prob)))]
     logP <- log(P)
-    LL <- sum(logP)
+
+    # 实现Lp正则化, 以及特殊的L1_L2正则化
+    LL <- sum(logP) - if (is.na(L)) {
+      0
+    } else if (L == 12) {
+      penalty * (sum(abs(unlist(params))) + sum(abs(unlist(params)) ^ 2))
+    } else {
+      penalty * sum(abs(unlist(params)) ^ L)
+    }
     AIC <- 2 * n_params - 2 * LL
     BIC <- n_params * log(n_rows) - 2 * LL
 
@@ -84,21 +94,19 @@ process_5_metric <- function(
   }
 
 ################################## [ABC] #######################################
- 
+  
   idinfo      <- output@input@features@idinfo
   latent      <- output@result@latent
   simulation  <- output@result@simulation
-  behavior    <- as.data.frame(base::cbind(idinfo, latent, simulation))
+  behavior    <- as.data.frame(cbind(idinfo, latent, simulation))
+  behavior$Block <- as.numeric(behavior$Block)
+  behavior$Trial <- as.numeric(behavior$Trial)
   colnames(behavior) <- c("Subject", "Block", "Trial", "Latent", "Simulation")
   
-  # 计算每个block中simulation的选择比率
-  ratio <- lapply(X = split(behavior, behavior[, "Block"]), FUN = function(x) {
-    action_prop  <- .block_ratio(data = x, colname = "Simulation", levels = rsp)
-  })
-  
-  onerow <- .for_abc(ratio)
-  
-  ABC <- list(ratio = ratio, onerow = onerow)
+  ABC <- .for_abc(
+    data = behavior, rsp = rsp,
+    block = "Block", action = "Simulation"
+  )
   
 ################################# [return] ##################################### 
   

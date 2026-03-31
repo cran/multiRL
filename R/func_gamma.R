@@ -1,13 +1,15 @@
-#' @title Function: Utility Function
+#' @title Function: Utility
 #' @description
 #' 
 #'  \deqn{U(R) = {R}^{\gamma}}
 #'
+#' @param shown
+#'  Which options shown in this trial.
 #' @param reward 
 #'  The feedback received by the agent from the environment at trial(t) 
 #'    following the execution of action(a)
 #' @param params 
-#'  Parameters used by the model’s internal functions,
+#'  Parameters used by the model's internal functions,
 #'    see \link[multiRL]{params}
 #' @param ... 
 #'  It currently contains the following information; additional information 
@@ -36,7 +38,15 @@
 #'          the object updated by the agent in the given trial.
 #'        \item simulation: 
 #'          the actual behavior performed by the agent.
+#'        \item position:
+#'          the position of the stimulus on the screen.
 #'      }
+#'    \item cue and rsp:
+#'      Cues and responses within latent learning rules, 
+#'        see \link[multiRL]{behrule} 
+#'    \item state:
+#'      The state stores the stimuli shown in the current trial—split into 
+#'      components by underscores—and the rewards associated with them.
 #' }
 #'    
 #' @return A \code{NumericVector} of length one representing the subjective 
@@ -44,6 +54,7 @@
 #'    
 #' @section Body: 
 #' \preformatted{func_gamma <- function(
+#'     shown,
 #'     reward,
 #'     params,
 #'     ...
@@ -61,13 +72,14 @@
 #'   gamma     <-  params[["gamma"]]
 #'   
 #'   # Stevens' Power Law
-#'   utility <- sign(reward) * (abs(reward) ^ gamma)
+#'   utility <- ((reward >= 0) * 2 - 1) * (abs(reward) ^ gamma)
 #'   
 #'   return(utility)
 #' }
 #' }
 #' 
 func_gamma <- function(
+    shown,
     reward,
     params,
     ...
@@ -85,7 +97,7 @@ func_gamma <- function(
   gamma     <-  params[["gamma"]]
 
   # Stevens' Power Law
-  utility <- sign(reward) * (abs(reward) ^ gamma)
+  utility <- ((reward >= 0) * 2 - 1) * (abs(reward) ^ gamma)
   
   return(utility)
 }

@@ -48,7 +48,7 @@ process_4_output_r <- function(
   
   params      <- record@input@params
   
-  rate_func   <- record@input@funcs@rate_func
+  lrng_func   <- record@input@funcs@lrng_func
   prob_func   <- record@input@funcs@prob_func
   util_func   <- record@input@funcs@util_func
   bias_func   <- record@input@funcs@bias_func
@@ -69,6 +69,7 @@ process_4_output_r <- function(
   latent      <- record@result@latent
   reward      <- record@result@reward
   simulation  <- record@result@simulation
+  position    <- record@result@position
   
   n_rows      <- record@input@n_rows
   
@@ -82,14 +83,15 @@ process_4_output_r <- function(
   
   value       <- lapply(value, function(x) {
     x[1, ] <- ifelse(is.na(Q0), yes = 0, no = Q0)
-    rbind(x, rep(NA, ncol(x)))
+    rbind(x, rep(NA_real_, ncol(x)))
   })
 
   count[1, ]  <- 0
-  count       <- rbind(count, rep(NA, ncol(count)))
+  count       <- rbind(count, rep(NA_real_, ncol(count)))
 
-  behave <- cbind(action, latent, simulation)
-  colnames(behave) <- c("action", "latent", "simulation")
+  behave <- cbind(action, latent, simulation, position)
+  behave <- rbind(behave, rep(NA_character_, ncol(behave)))
+  colnames(behave) <- c("action", "latent", "simulation", "position")
   
 ############################# [action select] ##################################
   
@@ -99,41 +101,53 @@ process_4_output_r <- function(
     
     # 记录每个刺激是否出现
     shown[i, ] <- stats::setNames(
-      object = ifelse(
-        test = cue %in% state[i, , ],
-        yes = 1,
-        no = NA
+      object = base::match(
+        x = cue, 
+        table = state[i, , ]
       ),
       nm = cue
     )
     # bias function: 每个刺激上的偏见
     bias[i, ] <- bias_func(
+      shown = shown[i, ],
       count = count[i, ], 
       params = params,
       idinfo = idinfo[i, ],
       exinfo = exinfo[i, ],
-      behave = behave[i, ]
+      behave = behave[i, ],
+      cue = cue, rsp = rsp,
+      state = state[i, , ]
     )
     # exploration function: 此次是否进行探索
     exploration[i, ] <- expl_func(
+      shown = shown[i, ],
       rownum = i,
       params = params,
       idinfo = idinfo[i, ],
       exinfo = exinfo[i, ],
-      behave = behave[i, ]
+      behave = behave[i, ],
+      cue = cue, rsp = rsp,
+      state = state[i, , ]
     )
 
-    qvalue <- lapply(value, function(x) (x[i, ] + bias[i, ]) * shown[i, ])
+    qvalue <- lapply(value, function(x) {
+      v <- x[i, ] + bias[i, ]
+      v[is.na(shown[i, ])] <- NA
+      return(v)
+    })
 
     # probability function: 选择每个选项的概率 
     prob[i, ] <- prob_func(
+      shown = shown[i, ],
       qvalue = qvalue, 
       explor = exploration[i, ],
       params = params,
       system = system,
       idinfo = idinfo[i, ],
       exinfo = exinfo[i, ],
-      behave = behave[i, ]
+      behave = behave[i, ],
+      cue = cue, rsp = rsp,
+      state = state[i, , ]
     )
     
     switch(
@@ -158,9 +172,16 @@ process_4_output_r <- function(
         simulation[i, ] <- action[i, ]
       }
     )
-    
+
+    position[i, ] <- as.character(row_index)
+    # 记录当前行为到当前试次, 会覆盖上一次的行为
     behave[i, 2] <- latent[i, ]
     behave[i, 3] <- simulation[i, ]
+    behave[i, 4] <- position[i, ]
+    # 记录当前行为到下一个试次, 用于action select三函数读取
+    behave[i + 1, 2] <- latent[i, ]
+    behave[i + 1, 3] <- simulation[i, ]
+    behave[i + 1, 4] <- position[i, ]
     
 ############################## [value update] ##################################
     
@@ -168,11 +189,14 @@ process_4_output_r <- function(
     reward[i, ] <- state[i, row_index, dim(state)[3]]
     # utility function: 将实际奖励转化为主管价值
     utility[i, ] <- util_func(
+      shown = shown[i, ],
       reward = as.numeric(reward[i, ]), 
       params = params,
       idinfo = idinfo[i, ],
       exinfo = exinfo[i, ],
-      behave = behave[i, ]
+      behave = behave[i, ],
+      cue = cue, rsp = rsp,
+      state = state[i, , ]
     )
     
     # 判断是否需要重置：Block是否发生变化
@@ -181,8 +205,10 @@ process_4_output_r <- function(
     } else {
       is.nb <- FALSE
     }
-    
-    
+
+    # 检查此时是否是第一次选(全局第一次 or 局部第一次, 都算)
+    is.fp <- count[i, latent[i, ]] == 0
+
     # 多系统更新价值
     for (sub_system in system) {
       sub_value <- value[[sub_system]]
@@ -198,44 +224,59 @@ process_4_output_r <- function(
       
       # 工作记忆容量有限导致未被选择选项的价值衰减
       sub_value[i + 1, ] <- dcay_func(
+        shown = shown[i, ],
         value0 = sub_value[1, ],
         values = cur_value,
         reward = as.numeric(reward[i, ]),
+        utility = as.numeric(utility[i, ]),
         params = params,
         system = sub_system,
         idinfo = idinfo[i, ],
         exinfo = exinfo[i, ],
-        behave = behave[i, ]
+        behave = behave[i, ],
+        cue = cue, rsp = rsp,
+        state = state[i, , ]
       )
-      
-      if (is.na(Q0) & Qi == 0) {
+
+      if (is.na(Q0) && is.fp) {
         # 如果是第一次选, 则直接记录价值 (等同于学习率100%的价值更新)
         sub_value[i + 1, latent[i, ]] <- utility[i, ]
         # 修改初始值为第一次见到的值
         sub_value[1, latent[i, ]]     <- utility[i, ]
       } else {
         # learning rate function: 如果不是第一次选, 则按照学习率方程更新
-        sub_value[i + 1, latent[i, ]] <- rate_func(
+        sub_value[i + 1, latent[i, ]] <- lrng_func(
+          shown = shown[i, ],
           qvalue = Qi,
-          reward = as.numeric(utility[i, ]),
+          reward = as.numeric(reward[i, ]),
+          utility = as.numeric(utility[i, ]),
           params = params,
           system = sub_system,
           idinfo = idinfo[i, ],
           exinfo = exinfo[i, ],
-          behave = behave[i, ]
+          behave = behave[i, ],
+          cue = cue, rsp = rsp,
+          state = state[i, , ]
         )
       }
       
       value[[sub_system]] <- sub_value
     }
     
-    count[i + 1, ] <- count[i, ]
+    # 如果需要重置, 且进入了新block, 则计数器也要归零
+    if (is.nb) {
+      count[i + 1, ] <- 0
+    } else {
+      count[i + 1, ] <- count[i, ]
+    }
+    
     count[i + 1, latent[i, ]] <- count[i + 1, latent[i, ]] + 1
   }
   
   # 删掉初始值和初始计数器
   value <- lapply(value, function(x) {x[-1, ]})
   count <- count[-1, ]
+  behave <- behave[-1, ]
 
 ################################# [output] #####################################
     
@@ -250,8 +291,8 @@ process_4_output_r <- function(
   record@result@reward      <- reward
   record@result@utility     <- utility
   record@result@simulation  <- simulation
+  record@result@position    <- position
 
-  
   output <- methods::new(
     Class = "multiRL.output",
     input = record@input,

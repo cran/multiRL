@@ -38,7 +38,7 @@
 #'  on a new data frame, estimating the input parameters that are most likely
 #'  to have generated the given dataset.
 #'
-engine_RNN <- function(
+engine_RNN3 <- function(
   data,
   colnames,
   behrule,
@@ -57,7 +57,7 @@ engine_RNN <- function(
   control$sample <- control$train
   list2env(control, envir = environment())
 
-  ############################### [Simulate] #####################################
+############################### [Simulate] #####################################
 
   env <- estimate_0_ENV(
     data = data,
@@ -67,7 +67,7 @@ engine_RNN <- function(
     priors = priors,
     settings = settings,
   )
-
+  
   list_simulated <- estimate_2_SBI(
     env = env,
     model = model,
@@ -113,8 +113,12 @@ engine_RNN <- function(
   Y_train <- Y[train_indices, , drop = FALSE]
   Y_valid <- Y[valid_indices, , drop = FALSE]
 
-############################# [loss function] ##################################
+################################# [keras3] #####################################
 
+  keras3::use_backend(backend)
+
+############################# [loss function] ##################################
+  
   if (loss == "NLL") {
     units_out <- n_params * 2
     # 拟合均值和对数方差 (Gaussian Negative Log-Likelihood)
@@ -125,11 +129,11 @@ engine_RNN <- function(
       log_var <- y_pred[, (n_params + 1):(2 * n_params), drop = FALSE]
 
       # 计算精度, 确保方差为正
-      precision <- keras::k_exp(-log_var)
+      precision <- keras3::op_exp(-log_var)
       # 负对数似然核心公式
-      loss_val <- 0.5 * precision * keras::k_square(y_true - mu) + 0.5 * log_var
+      loss_val <- 0.5 * precision * keras3::op_square(y_true - mu) + 0.5 * log_var
 
-      return(keras::k_mean(keras::k_sum(loss_val, axis = -1L)))
+      return(keras3::op_mean(keras3::op_sum(loss_val, axis = -1L)))
     }
   } else if (loss == "QRL") {
     # 预测3个分位数：5%, 50%, 95%
@@ -145,8 +149,8 @@ engine_RNN <- function(
         err <- y_true - pred
         # Pinball公式核心: max(q * err, (q - 1) * err)
         total_loss <- total_loss +
-          keras::k_mean(
-            keras::k_maximum(q_values[i] * err, (q_values[i] - 1.0) * err),
+          keras3::op_mean(
+            keras3::op_maximum(q_values[i] * err, (q_values[i] - 1.0) * err),
             axis = -1L
           )
       }
@@ -159,44 +163,43 @@ engine_RNN <- function(
 
     loss_func <- function(y_true, y_pred) {
       # 将预测输出切分并重塑为 (batch_size, n_params, K)
-      pi_logits <- keras::k_reshape(
+      pi_logits <- keras3::op_reshape(
         y_pred[, 1:(n_params * K), drop = FALSE],
         c(-1L, n_params, K)
       )
-      mu <- keras::k_reshape(
+      mu <- keras3::op_reshape(
         y_pred[, (n_params * K + 1):(2 * n_params * K), drop = FALSE],
         c(-1L, n_params, K)
       )
-      log_var <- keras::k_reshape(
+      log_var <- keras3::op_reshape(
         y_pred[, (2 * n_params * K + 1):(3 * n_params * K), drop = FALSE],
         c(-1L, n_params, K)
       )
 
       # 对K个混合成分进行Softmax，得到权重
-      mix_weights <- keras::k_softmax(pi_logits, axis = -1L)
+      mix_weights <- keras3::op_softmax(pi_logits, axis = -1L)
 
       # 扩展真实Y值的维度以便广播计算 (batch_size, n_params, 1)
-      y_true_exp <- keras::k_expand_dims(y_true, axis = -1L)
+      y_true_exp <- keras3::op_expand_dims(y_true, axis = -1L)
 
       # 计算高斯分布的对数概率
       cst <- 0.5 * log(2 * base::pi)
       log_prob <- -cst -
         0.5 * log_var -
-        0.5 * keras::k_square(y_true_exp - mu) * keras::k_exp(-log_var)
+        0.5 * keras3::op_square(y_true_exp - mu) * keras3::op_exp(-log_var)
 
       # 加上混合权重的对数 log(pi) + log(N(y|mu, sigma))
-      log_mix_weights <- keras::k_log(mix_weights + 1e-8)
+      log_mix_weights <- keras3::op_log(mix_weights + 1e-8)
       weighted_log_prob <- log_mix_weights + log_prob
 
       # Log-Sum-Exp 技巧合并K个成分，防止数值溢出
-      m <- keras::k_max(weighted_log_prob, axis = -1L, keepdims = TRUE)
-      # log(sum(exp(x - m))) + m
-      log_mix_prob <- keras::k_log(
-        keras::k_sum(keras::k_exp(weighted_log_prob - m), axis = -1L)
-      ) + keras::k_squeeze(m, axis = -1L)
+      log_mix_prob <- keras3::op_logsumexp(
+        weighted_log_prob,
+        axis = -1L
+      )
 
       # 对所有参数求和，再对批次求均值
-      return(keras::k_mean(-keras::k_sum(log_mix_prob, axis = -1L)))
+      return(keras3::op_mean(-keras3::op_sum(log_mix_prob, axis = -1L)))
     }
   } else if (loss == "MAE") {
     units_out <- n_params
@@ -210,53 +213,47 @@ engine_RNN <- function(
   }
 
 ################################# [RNN] ########################################
-
+  
   # Initialize Model (sequential decision making)
-  RNN <- keras::keras_model_sequential()
+  RNN <- keras3::keras_model_sequential(input_shape = c(n_trials, n_info))
 
   # Recurrent Layer
   switch(
     EXPR = layer,
     "RNN" = {
-      RNN <- keras::layer_simple_rnn(
-        object = RNN,
-        units = units,
-        input_shape = c(n_trials, n_info),
+      RNN <- keras3::layer_simple_rnn(
+        object = RNN, 
+        units = units
       )
     },
     "GRU" = {
-      RNN <- keras::layer_gru(
+      RNN <- keras3::layer_gru(
         object = RNN,
-        units = units,
-        input_shape = c(n_trials, n_info),
+        units = units
       )
     },
     "LSTM" = {
-      RNN <- keras::layer_lstm(
+      RNN <- keras3::layer_lstm(
         object = RNN,
-        units = units,
-        input_shape = c(n_trials, n_info),
+        units = units
       )
     },
     "BiRNN" = {
-      RNN <- keras::bidirectional(
+      RNN <- keras3::layer_bidirectional(
         object = RNN,
-        layer = keras::layer_simple_rnn(units = units),
-        input_shape = c(n_trials, n_info)
+        layer = keras3::layer_simple_rnn(units = units)
       )
     },
     "BiGRU" = {
-      RNN <- keras::bidirectional(
+      RNN <- keras3::layer_bidirectional(
         object = RNN,
-        layer = keras::layer_gru(units = units),
-        input_shape = c(n_trials, n_info)
+        layer = keras3::layer_gru(units = units)
       )
     },
     "BiLSTM" = {
-      RNN <- keras::bidirectional(
+      RNN <- keras3::layer_bidirectional(
         object = RNN,
-        layer = keras::layer_lstm(units = units),
-        input_shape = c(n_trials, n_info)
+        layer = keras3::layer_lstm(units = units)
       )
     },
   )
@@ -265,47 +262,47 @@ engine_RNN <- function(
   switch(
     EXPR = as.character(L),
     "1" = {
-      RNN <- keras::layer_dense(
+      RNN <- keras3::layer_dense(
         object = RNN,
         units = units / 2,
         activation = "relu",
-        kernel_initializer = keras::initializer_he_normal(),
-        kernel_regularizer = keras::regularizer_l1(l = penalty)
+        kernel_initializer = keras3::initializer_he_normal(),
+        kernel_regularizer = keras3::regularizer_l1(l1 = penalty)
       )
     },
     "2" = {
-      RNN <- keras::layer_dense(
+      RNN <- keras3::layer_dense(
         object = RNN,
         units = units / 2,
         activation = "relu",
-        kernel_initializer = keras::initializer_he_normal(),
-        kernel_regularizer = keras::regularizer_l2(l = penalty)
+        kernel_initializer = keras3::initializer_he_normal(),
+        kernel_regularizer = keras3::regularizer_l2(l2 = penalty)
       )
     },
     "12" = {
-      RNN <- keras::layer_dense(
+      RNN <- keras3::layer_dense(
         object = RNN,
         units = units / 2,
         activation = "relu",
-        kernel_initializer = keras::initializer_he_normal(),
-        kernel_regularizer = keras::regularizer_l1_l2(l1 = penalty, l2 = penalty)
+        kernel_initializer = keras3::initializer_he_normal(),
+        kernel_regularizer = keras3::regularizer_l1_l2(l1 = penalty, l2 = penalty)
       )
     },
     {
-      RNN <- keras::layer_dense(
+      RNN <- keras3::layer_dense(
         object = RNN,
         units = units / 2,
         activation = "relu",
-        kernel_initializer = keras::initializer_he_normal()
+        kernel_initializer = keras3::initializer_he_normal()
       )
     }
   )
 
   RNN <- RNN |>
     # Dropout Layer
-    keras::layer_dropout(rate = dropout) |>
+    keras3::layer_dropout(rate = dropout) |>
     # Output Layer
-    keras::layer_dense(
+    keras3::layer_dense(
       units = units_out,
       activation = "linear"
     )
@@ -317,7 +314,7 @@ engine_RNN <- function(
     "MAE" = ,
     "HBR" = {
       RNN |>
-        keras::compile(
+        keras3::compile(
           loss = loss_func,
           optimizer = "adam",
           metrics = c(loss_func)
@@ -327,7 +324,7 @@ engine_RNN <- function(
     "MDN" = ,
     "QRL" = {
       RNN |>
-        keras::compile(
+        keras3::compile(
           loss = loss_func,
           optimizer = "adam"
         )
@@ -336,7 +333,7 @@ engine_RNN <- function(
 
   # Training RNN Model
   history <- RNN |>
-    keras::fit(
+    keras3::fit(
       x = X_train,
       y = Y_train,
       epochs = epochs,

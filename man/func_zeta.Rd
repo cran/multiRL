@@ -4,9 +4,11 @@
 \alias{func_zeta}
 \title{Function: Decay Rate}
 \usage{
-func_zeta(value0, values, reward, params, system, ...)
+func_zeta(shown, value0, values, reward, utility, params, system, ...)
 }
 \arguments{
+\item{shown}{Which options shown in this trial.}
+
 \item{value0}{The initial values for all actions.}
 
 \item{values}{The current expected values for all actions.}
@@ -14,7 +16,10 @@ func_zeta(value0, values, reward, params, system, ...)
 \item{reward}{The feedback received by the agent from the environment at trial(t) 
 following the execution of action(a)}
 
-\item{params}{Parameters used by the model’s internal functions,
+\item{utility}{The subjective value (internal representation) assigned by 
+the agent to the objective reward.}
+
+\item{params}{Parameters used by the model's internal functions,
 see \link[multiRL]{params}}
 
 \item{system}{When the agent makes a decision, is a single system at work, or are multiple 
@@ -47,7 +52,15 @@ systems involved?
          the object updated by the agent in the given trial.
        \item simulation: 
          the actual behavior performed by the agent.
+       \item position:
+         the position of the stimulus on the screen.
      }
+   \item cue and rsp:
+     Cues and responses within latent learning rules, 
+       see \link[multiRL]{behrule} 
+   \item state:
+     The state stores the stimuli shown in the current trial—split into 
+     components by underscores—and the rewards associated with them.
 }}
 }
 \value{
@@ -60,10 +73,13 @@ A \code{NumericVector} representing the values of unchosen options
 \section{Body}{
  
 \preformatted{func_zeta <- function(
+    shown,
     value0, 
     values,
     reward,
+    utility,
     params,
+    system,
     ...
 ){
 
