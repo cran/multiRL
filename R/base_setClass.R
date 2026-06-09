@@ -82,6 +82,7 @@ methods::setClass(
   Class = "multiRL.behrule",
   slots = list(
     cue = "character", 
+    mid = "character",
     rsp = "character",
     extra = "list"
   )
@@ -97,6 +98,9 @@ methods::setClass(
     shown = "matrix",
     prob = "matrix",
     count = "matrix",
+
+    hidden = "matrix",
+
     exploration = "matrix",
     latent = "matrix",
     reward = "matrix",

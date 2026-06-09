@@ -104,6 +104,9 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     const Rcpp::CharacterVector cue = Rcpp::as<Rcpp::CharacterVector>(
         behrule.slot("cue")
     );
+    const Rcpp::CharacterVector mid = Rcpp::as<Rcpp::CharacterVector>(
+        behrule.slot("mid")
+    );
     const Rcpp::CharacterVector rsp = Rcpp::as<Rcpp::CharacterVector>(
         behrule.slot("rsp")
     );
@@ -111,6 +114,7 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     // number of ...    
     int n_rows = Rcpp::as<int>( input.slot("n_rows") );
     int n_cues = cue.size(); 
+    int n_mids = mid.size(); 
     int n_rsps = rsp.size();
     int n_system = system.size();
 
@@ -137,6 +141,11 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         result.slot("count")
     ));
 
+    // R: record@result [hidden]
+    Rcpp::CharacterMatrix hidden_raw = Rcpp::clone(Rcpp::as<Rcpp::CharacterMatrix>(
+        result.slot("hidden")
+    ));
+
     // R: record@result [value update]
     Rcpp::NumericMatrix exploration = Rcpp::clone(Rcpp::as<Rcpp::NumericMatrix>(
         result.slot("exploration")
@@ -156,6 +165,25 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     Rcpp::CharacterMatrix position = Rcpp::clone(Rcpp::as<Rcpp::CharacterMatrix>(
         result.slot("position")
     )); 
+
+/******************************* [cue & rsp] **********************************/
+
+    // cue建立哈希表
+    std::unordered_map<std::string, int> cue_map;
+    cue_map.reserve(n_cues);
+    for (int j = 0; j < n_cues; j++) {
+        cue_map[ std::string(CHAR(cue[j])) ] = j;
+    }
+
+    // rsp建立哈希表
+    std::unordered_set<std::string> rsp_set;
+    rsp_set.reserve(n_rsps);
+
+    for (int i = 0; i < n_rsps; i++) {
+        rsp_set.insert( Rcpp::as<std::string>(rsp[i]) );
+    }
+
+/**************************** [behave & hidden] *******************************/
 
     // behave
     Rcpp::CharacterMatrix behave_raw = Rcpp::cbind(
@@ -179,24 +207,17 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         "action", "latent", "simulation", "position"
     );
 
-/******************************* [load others] ********************************/
-
-    // cue建立哈希表
-    std::unordered_map<std::string, int> cue_map;
-    cue_map.reserve(n_cues);
-    for (int j = 0; j < n_cues; j++) {
-        cue_map[ std::string(CHAR(cue[j])) ] = j;
+    // 给hidden赋予第0行
+    Rcpp::CharacterMatrix hidden(n_rows + 1, n_mids);
+    hidden.row(0) = Rcpp::CharacterVector(n_mids, NA_STRING);
+    
+    // 将原矩阵数据拷贝到新矩阵
+    for (int i = 0; i < n_rows; i++) {
+        hidden.row(i + 1) = hidden_raw.row(i);
     }
+    Rcpp::colnames(hidden) = mid;
 
-    // rsp建立哈希表
-    std::unordered_set<std::string> rsp_set;
-    rsp_set.reserve(n_rsps);
-
-    for (int i = 0; i < n_rsps; i++) {
-        rsp_set.insert( Rcpp::as<std::string>(rsp[i]) );
-    }
-
-/****************************** [initial value] *******************************/
+/***************************** [values & counts] ******************************/
 
     int seed = params["seed"];
     double Q0 = params["Q0"];
@@ -209,20 +230,22 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         Rcpp::NumericMatrix sub_value = value[i];
         std::fill( 
             sub_value.row(0).begin(), sub_value.row(0).end(), 
-            std::isnan(Q0) ? 0.0 : Q0 
+            R_IsNaN(Q0) ? 0.0 : Q0 
         );
-        sub_value = Rcpp::as<Rcpp::NumericMatrix>( r_rbind(sub_value, new_row) );
+        sub_value = Rcpp::as<Rcpp::NumericMatrix>(r_rbind(sub_value, new_row));
         value[i] = sub_value;
     }
     
-    std::fill( count.row(0).begin(), count.row(0).end(), 0.0 );
-    count = Rcpp::as<Rcpp::NumericMatrix>( r_rbind(count, new_row) );
+    std::fill(count.row(0).begin(), count.row(0).end(), 0.0);
+    count = Rcpp::as<Rcpp::NumericMatrix>(r_rbind(count, new_row));
 
 /******************************** [main loop] *********************************/
 
     // 设置随机种子
     Rcpp::Function r_set_seed("set.seed");
     r_set_seed(seed);
+
+    Rcpp::CharacterVector updated_hidden;
 
     for (int i = 0; i < n_rows; i++) {
 
@@ -232,31 +255,44 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         shown.row(i) = record_shown(state[i], cue);
 
         // bias function: 每个刺激上的偏见
-        bias.row(i) = Rcpp::as<Rcpp::NumericVector>(
-            bias_func(
-                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
-                Rcpp::_["count"]  = Rcpp::NumericVector(count.row(i)),
-                Rcpp::_["params"] = params,
-                Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
-                Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
-                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
-                Rcpp::_["state"] = state[i]
-            )
+        Rcpp::List bias_results = bias_func(
+            Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
+            Rcpp::_["count"]  = Rcpp::NumericVector(count.row(i)),
+
+            Rcpp::_["rownum"] = i + 1,
+            Rcpp::_["params"] = params,
+            Rcpp::_["hidden"] = Rcpp::CharacterVector(hidden.row(i)),
+
+            Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
+            Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
+            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+            Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+            Rcpp::_["state"] = state[i]
         );
+        bias.row(i) = Rcpp::as<Rcpp::NumericVector>(bias_results["output"]);
+        updated_hidden = bias_results["hidden"];
+        hidden.row(i) = updated_hidden;
+        hidden.row(i + 1) = updated_hidden;
+
         // exploration function: 此次是否进行探索
-        exploration.row(i) = Rcpp::as<Rcpp::NumericVector>(
-            expl_func(
-                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
-                Rcpp::_["rownum"] = i + 1,
-                Rcpp::_["params"] = params,
-                Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
-                Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
-                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
-                Rcpp::_["state"] = state[i]
-            )
-        );   
+        Rcpp::List expl_results = expl_func(
+            Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
+
+            Rcpp::_["rownum"] = i + 1,
+            Rcpp::_["params"] = params,
+            Rcpp::_["hidden"] = Rcpp::CharacterVector(hidden.row(i)),
+
+            Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
+            Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
+            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+            Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+            Rcpp::_["state"] = state[i]
+        );
+        exploration.row(i) = Rcpp::as<Rcpp::NumericVector>(expl_results["output"]);
+        updated_hidden = expl_results["hidden"];
+        hidden.row(i) = updated_hidden;
+        hidden.row(i + 1) = updated_hidden;
+
         // probability function: 选择每个选项的概率 
         Rcpp::List qvalue(n_system);
 
@@ -264,29 +300,44 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
             Rcpp::NumericMatrix sub_value = value[s];
             Rcpp::NumericVector sub_qvalue(n_cues);
             for (int j = 0; j < n_cues; j++) {
+                // 如果该试次不出现某选项, 则替换成NA_real_
                 if (Rcpp::NumericVector::is_na(shown(i, j))) {
                     sub_qvalue[j] = NA_REAL;
                 } else {
-                    sub_qvalue[j] = sub_value(i, j) + bias(i, j);
+                    // 如果该试次出现的选项价值也是NA, 则说明Q0 = NA_real_
+                    double shown_qvalue = sub_value(i, j) + bias(i, j);
+                    if (R_IsNA(shown_qvalue)) {
+                        // 将第一行替换成0(占位符), 保证可以进行soft-max
+                        sub_qvalue[j] = 0.0;
+                    } else {
+                        // 正常出现的值, 保持不变
+                        sub_qvalue[j] = shown_qvalue;
+                    }
                 }
             }
             qvalue[s] = sub_qvalue;
         }
 
-        prob.row(i) = Rcpp::as<Rcpp::NumericVector>(
-            prob_func(
-                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
-                Rcpp::_["qvalue"] = qvalue,
-                Rcpp::_["explor"] = Rcpp::NumericVector(exploration.row(i)),
-                Rcpp::_["params"] = params,
-                Rcpp::_["system"] = system,
-                Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
-                Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
-                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
-                Rcpp::_["state"] = state[i]
-            )
+        Rcpp::List prob_results = prob_func(
+            Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
+            Rcpp::_["qvalue"] = qvalue,
+            Rcpp::_["explor"] = Rcpp::NumericVector(exploration.row(i)),
+            Rcpp::_["system"] = system,
+
+            Rcpp::_["rownum"] = i + 1,
+            Rcpp::_["params"] = params,
+            Rcpp::_["hidden"] = Rcpp::CharacterVector(hidden.row(i)),
+
+            Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
+            Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
+            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+            Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+            Rcpp::_["state"] = state[i]
         );
+        prob.row(i) = Rcpp::as<Rcpp::NumericVector>(prob_results["output"]);
+        updated_hidden = prob_results["hidden"];
+        hidden.row(i) = updated_hidden;
+        hidden.row(i + 1) = updated_hidden;
 
 /************************************ [policy] ********************************/
 
@@ -368,30 +419,31 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
 /******************************** [value update] ******************************/
 
         // utility function: 奖励转换成主观价值
-        utility.row(i) = Rcpp::as<Rcpp::NumericVector>(
-            util_func(
-                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
-                Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
-                Rcpp::_["params"] = params,
-                Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
-                Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
-                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
-                Rcpp::_["state"] = state[i]
-            )
-        ); 
+        Rcpp::List util_results = util_func(
+            Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
+            Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
+
+            Rcpp::_["rownum"] = i + 1,
+            Rcpp::_["params"] = params,
+            Rcpp::_["hidden"] = Rcpp::CharacterVector(hidden.row(i)),
+
+            Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
+            Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
+            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+            Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+            Rcpp::_["state"] = state[i]
+        );
+        utility.row(i) = Rcpp::as<Rcpp::NumericVector>(util_results["output"]);
+        updated_hidden = util_results["hidden"];
+        hidden.row(i) = updated_hidden;
+        hidden.row(i + 1) = updated_hidden;
 
         // 提取此次选择的latent为target
         const std::string target = Rcpp::as<std::string>( latent(i,0) );
         // 在cue中寻找target
         col_index = cue_map[target];
         
-        bool is_nb;
-        if (!std::isnan(reset)) {
-            is_nb = (i > 0) && (block[i] != block[i - 1]);
-        } else {
-            is_nb = false;  
-        }
+        bool is_nb = trial[i] == 1;
 
         // 检查此时是否是第一次选(全局第一次 or 局部第一次, 都算)
         bool is_fp = (count(i, col_index) == 0);
@@ -405,55 +457,62 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
             double Qi;
             Rcpp::NumericVector cur_value;
 
-            // 是否在进入新 block 时重置
-            if (is_nb) {
-                cur_value = Rcpp::rep(reset, sub_value.ncol());
-                Qi        = reset;
-            } else {
-                cur_value = Rcpp::NumericVector(sub_value.row(i));
-                Qi        = sub_value(i, col_index);
+            // decay：未被选择选项的价值衰减
+            Rcpp::List dcay_results = dcay_func(
+                Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
+                Rcpp::_["is.nb"]  = is_nb,
+                Rcpp::_["value0"] = Rcpp::NumericVector(sub_value.row(0)),
+                Rcpp::_["values"] = Rcpp::NumericVector(sub_value.row(i)),
+                Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
+                Rcpp::_["utility"] = utility(i, 0),
+                Rcpp::_["system"] = sub_system,
+
+                Rcpp::_["rownum"] = i + 1,
+                Rcpp::_["params"] = params,
+                Rcpp::_["hidden"] = Rcpp::CharacterVector(hidden.row(i)),
+                
+                Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
+                Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
+                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                Rcpp::_["state"] = state[i]
+            );
+            sub_value.row(i + 1) = Rcpp::as<Rcpp::NumericVector>(dcay_results["output"]);
+            updated_hidden = dcay_results["hidden"];
+            hidden.row(i) = updated_hidden;
+            hidden.row(i + 1) = updated_hidden;
+
+            Qi = sub_value(i, col_index);
+            if (is_nb && R_IsNA(reset)) {
+                Qi = sub_value(i + 1, col_index);
             }
 
-            // decay：未被选择选项的价值衰减
-            sub_value.row(i + 1) =
-                Rcpp::as<Rcpp::NumericVector>(
-                    dcay_func(
-                        Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
-                        Rcpp::_["value0"] = Rcpp::NumericVector(sub_value.row(0)),
-                        Rcpp::_["values"] = cur_value,
-                        Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
-                        Rcpp::_["utility"] = utility(i, 0),
-                        Rcpp::_["params"] = params,
-                        Rcpp::_["system"] = sub_system,
-                        Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
-                        Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                        Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
-                        Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
-                        Rcpp::_["state"] = state[i]
-                    )
-                );
-
             // learning rate 更新
-            if (std::isnan(Q0) && is_fp) {
-                sub_value(i + 1, col_index) = utility(i, 0);
-                sub_value(0,     col_index) = utility(i, 0);
-            } else {
-                sub_value(i + 1, col_index) =
-                    Rcpp::as<double>(
-                        lrng_func(
-                            Rcpp::_["shown"]  = Rcpp::NumericVector(shown.row(i)),
-                            Rcpp::_["qvalue"] = Qi,
-                            Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
-                            Rcpp::_["utility"] = utility(i, 0),
-                            Rcpp::_["params"] = params,
-                            Rcpp::_["system"] = sub_system,
-                            Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
-                            Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
-                            Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
-                            Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
-                            Rcpp::_["state"] = state[i]
-                        )
-                    );
+            Rcpp::List lrng_results = lrng_func(
+                Rcpp::_["shown"] = Rcpp::NumericVector(shown.row(i)),
+                Rcpp::_["is.fp"] = is_fp,
+                Rcpp::_["qvalue"] = Qi,
+                Rcpp::_["reward"] = Rcpp::NumericVector(reward.row(i)),
+                Rcpp::_["utility"] = utility(i, 0),
+                Rcpp::_["system"] = sub_system,
+
+                Rcpp::_["rownum"] = i + 1,
+                Rcpp::_["params"] = params,
+                Rcpp::_["hidden"] = Rcpp::CharacterVector(hidden.row(i)),
+                
+                Rcpp::_["idinfo"] = Rcpp::CharacterVector(idinfo.row(i)),
+                Rcpp::_["exinfo"] = Rcpp::CharacterVector(exinfo.row(i)),
+                Rcpp::_["behave"] = Rcpp::CharacterVector(behave.row(i)),
+                Rcpp::_["cue"] = cue, Rcpp::_["rsp"] = rsp, 
+                Rcpp::_["state"] = state[i]
+            );
+            sub_value(i + 1, col_index) = Rcpp::as<double>(lrng_results["output"]);
+            updated_hidden = lrng_results["hidden"];
+            hidden.row(i) = updated_hidden;
+            hidden.row(i + 1) = updated_hidden;
+
+            if (R_IsNaN(Q0) && is_fp) {
+                sub_value(1, col_index) = Rcpp::as<double>(lrng_results["output"]);
             }
 
             // 写回 list
@@ -461,7 +520,7 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         }
         
         //如果需要重置, 且进入了新block, 则计数器也要归零
-        if (is_nb) {
+        if (is_nb && !R_IsNaN(reset)) {
             std::fill( count.row(i+1).begin(), count.row(i+1).end(), 0.0 );
         } else {
             count.row(i+1) = count.row(i);
@@ -470,20 +529,6 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
         count(i+1, col_index) = count(i+1, col_index)+1;
     }
 
-/******************************** [delete row 1] ******************************/
-
-    Rcpp::Range rows_to_keep(1, n_rows);
-    
-    for (int s = 0; s < n_system; s++) {
-        Rcpp::NumericMatrix sub_value = value[s];
-        sub_value = sub_value(rows_to_keep, Rcpp::_);
-        Rcpp::colnames(sub_value) = cue;
-        value[s] = sub_value;
-    }
-
-    count = count(rows_to_keep, Rcpp::_);
-    Rcpp::colnames(count) = cue;
-
 /********************************* [save result] ******************************/
 
     result.slot("value")        = value;
@@ -491,6 +536,8 @@ Rcpp::S4 process_4_output_cpp(const Rcpp::S4 record, const Rcpp::List& extra) {
     result.slot("shown")        = shown;
     result.slot("prob")         = prob;
     result.slot("count")        = count;
+
+    result.slot("hidden")       = hidden;
 
     result.slot("exploration")  = exploration;
     result.slot("latent")       = latent;

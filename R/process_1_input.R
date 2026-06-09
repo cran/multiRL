@@ -107,10 +107,11 @@ process_1_input <- function(
     ),
     constant = list(
       seed = 123,
+      chunk = NULL,
       L = NA_real_,
       penalty = 1,
-      Q0 = NA_real_, 
-      reset = NA_real_,
+      Q0 = NaN, 
+      reset = NaN,
       lapse = 0.01,
       threshold = 1,
       bonus = 0,
@@ -163,6 +164,10 @@ process_1_input <- function(
   
   # 如果没有输入block, 则block自动变成1
   if (is.null(colnames$block)) {data$Block = 1}
+  # 如果需要, 则伪造一个block
+  data <- .fake_block(
+    data = data, block = colnames$block, chunk = params$constant$chunk
+  )
   
 ############################# [object & reward] ################################
   

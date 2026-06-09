@@ -33,6 +33,8 @@ methods::setMethod(
     shown <- .prefix_colnames(as.data.frame(object@result@shown), "S_")
     count <- .prefix_colnames(as.data.frame(object@result@count), "C_")
     
+    hidden <- object@result@hidden
+
     behavior <- data.frame(
       Exploration = object@result@exploration,
       Latent      = object@result@latent,
@@ -42,7 +44,7 @@ methods::setMethod(
       Position    = object@result@position
     )
     
-    data <- cbind(raw, bias, shown, prob, count, behavior)
+    data <- cbind(raw, behavior, bias, shown, prob, count, hidden)
     process <- value
     names(process) <- system
 
